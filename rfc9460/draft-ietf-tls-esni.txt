@@ -3,13 +3,14 @@
 
 
 tls                                                          E. Rescorla
-Internet-Draft                                                RTFM, Inc.
+Internet-Draft                                   Windy Hill Systems, LLC
 Intended status: Standards Track                                  K. Oku
-Expires: 20 April 2024                                            Fastly
+Expires: 9 September 2024                                         Fastly
                                                              N. Sullivan
+                                             Cryptography Consulting LLC
                                                               C. A. Wood
                                                               Cloudflare
-                                                         18 October 2023
+                                                            8 March 2024
 
 
                        TLS Encrypted Client Hello
@@ -43,11 +44,11 @@ Status of This Memo
    time.  It is inappropriate to use Internet-Drafts as reference
    material or to cite them other than as "work in progress."
 
-   This Internet-Draft will expire on 20 April 2024.
+   This Internet-Draft will expire on 9 September 2024.
 
 Copyright Notice
 
-   Copyright (c) 2023 IETF Trust and the persons identified as the
+   Copyright (c) 2024 IETF Trust and the persons identified as the
    document authors.  All rights reserved.
 
    This document is subject to BCP 78 and the IETF Trust's Legal
@@ -121,21 +122,21 @@ Table of Contents
      11.1.  Update of the TLS ExtensionType Registry
      11.2.  Update of the TLS Alert Registry
      11.3.  ECH Configuration Extension Registry
-   12. ECHConfig Extension Guidance
-   13. References
-     13.1.  Normative References
-     13.2.  Informative References
-   Appendix A.  Linear-time Outer Extension Processing
-   Appendix B.  Acknowledgements
-   Appendix C.  Change Log
-     C.1.  Since draft-ietf-tls-esni-16
-     C.2.  Since draft-ietf-tls-esni-15
-     C.3.  Since draft-ietf-tls-esni-14
-     C.4.  Since draft-ietf-tls-esni-13
-     C.5.  Since draft-ietf-tls-esni-12
-     C.6.  Since draft-ietf-tls-esni-11
-     C.7.  Since draft-ietf-tls-esni-10
-     C.8.  Since draft-ietf-tls-esni-09
+   12. References
+     12.1.  Normative References
+     12.2.  Informative References
+   Appendix A.  ECHConfig Extension Guidance
+   Appendix B.  Linear-time Outer Extension Processing
+   Appendix C.  Acknowledgements
+   Appendix D.  Change Log
+     D.1.  Since draft-ietf-tls-esni-16
+     D.2.  Since draft-ietf-tls-esni-15
+     D.3.  Since draft-ietf-tls-esni-14
+     D.4.  Since draft-ietf-tls-esni-13
+     D.5.  Since draft-ietf-tls-esni-12
+     D.6.  Since draft-ietf-tls-esni-11
+     D.7.  Since draft-ietf-tls-esni-10
+     D.8.  Since draft-ietf-tls-esni-09
    Authors' Addresses
 
 1.  Introduction
@@ -153,16 +154,6 @@ Table of Contents
    messages, which leaks the target domain for a given connection, is
    perhaps the most sensitive, unencrypted information in TLS 1.3.
 
-   The target domain may also be visible through other channels, such as
-   plaintext client DNS queries or visible server IP addresses.
-   However, DoH [RFC8484] and DPRIVE [RFC7858] [RFC8094] provide
-   mechanisms for clients to conceal DNS lookups from network
-   inspection, and many TLS servers host multiple domains on the same IP
-   address.  Private origins may also be deployed behind a common
-   provider, such as a reverse proxy.  In such environments, the SNI
-   remains the primary explicit signal used to determine the server's
-   identity.
-
    This document specifies a new TLS extension, called Encrypted Client
    Hello (ECH), that allows clients to encrypt their ClientHello to such
    a deployment.  This protects the SNI and other potentially sensitive
@@ -178,6 +169,17 @@ Table of Contents
    does not reveal which server from the anonymity set terminates the
    connection.  Deployment implications of this feature are discussed in
    Section 8.
+
+   ECH is not in itself sufficient to protect the identity of the
+   server.  The target domain may also be visible through other
+   channels, such as plaintext client DNS queries or visible server IP
+   addresses.  However, DoH [RFC8484] and DPRIVE [RFC7858] [RFC8094]
+   provide mechanisms for clients to conceal DNS lookups from network
+   inspection, and many TLS servers host multiple domains on the same IP
+   address.  Private origins may also be deployed behind a common
+   provider, such as a reverse proxy.  In such environments, the SNI
+   remains the primary explicit signal used to determine the server's
+   identity.
 
    ECH is supported in TLS 1.3 [RFC8446], DTLS 1.3 [RFC9147], and newer
    versions of the TLS and DTLS protocols.
@@ -252,7 +254,7 @@ Table of Contents
    metadata.  The server must publish this for all the domains it serves
    via Shared or Split Mode.  This document defines the ECH
    configuration's format, but delegates DNS publication details to
-   [HTTPS-RR].  See [ECH-IN-DNS] for specifics about how ECH
+   [RFC9460].  See [ECH-IN-DNS] for specifics about how ECH
    configurations are advertised in HTTPS records.  Other delivery
    mechanisms are also possible.  For example, the client may have the
    ECH configuration preconfigured.
@@ -295,9 +297,10 @@ Table of Contents
    configuration is defined by the following ECHConfig structure.
 
        opaque HpkePublicKey<1..2^16-1>;
-       uint16 HpkeKemId;  // Defined in RFC9180
-       uint16 HpkeKdfId;  // Defined in RFC9180
-       uint16 HpkeAeadId; // Defined in RFC9180
+       uint16 HpkeKemId;              // Defined in RFC9180
+       uint16 HpkeKdfId;              // Defined in RFC9180
+       uint16 HpkeAeadId;             // Defined in RFC9180
+       uint16 ECHConfigExtensionType; // Defined in Section 11.3
 
        struct {
            HpkeKdfId kdf_id;
@@ -370,8 +373,11 @@ Table of Contents
       final LDH label either consists of all ASCII digits (i.e. '0'
       through '9') or is "0x" or "0X" followed by some, possibly empty,
       sequence of ASCII hexadecimal digits (i.e. '0' through '9', 'a'
-      through 'f', and 'A' through 'F').  Thus avoids public_name values
-      that may be interpreted as IPv4 literals.
+      through 'f', and 'A' through 'F').  This avoids public_name values
+      that may be interpreted as IPv4 literals.  Additionally, clients
+      MAY ignore the ECHConfig if the length of any label in the DNS
+      name is longer than 63 octets, as this is the maximum length of a
+      DNS label.
 
       See Section 6.1.7 for how the client interprets and validates the
       public_name.
@@ -382,9 +388,6 @@ Table of Contents
       where the data value is encoded with a 2-octet integer
       representing the length of the data, in network byte order.
       ECHConfigExtension values are described below (Section 4.2).
-
-   [[OPEN ISSUE: determine if clients should enforce a 63-octet label
-   limit for public_name]]
 
    The HpkeKeyConfig structure contains the following fields:
 
@@ -437,7 +440,7 @@ Table of Contents
 4.2.  Configuration Extensions
 
    ECH configuration extensions are used to provide room for additional
-   functionality as needed.  See Section 12 for guidance on which types
+   functionality as needed.  See Appendix A for guidance on which types
    of extensions are appropriate for this structure.
 
    The format is as defined in Section 4 and mirrors Section 4.2 of
@@ -481,7 +484,9 @@ Table of Contents
        } ECHClientHello;
 
    The outer extension uses the outer variant and the inner extension
-   uses the inner variant.  The inner extension has an empty payload.
+   uses the inner variant.  The inner extension has an empty payload,
+   which is included because TLS servers are not allowed to provide
+   extensions in ServerHello which were not included in ClientHello.
    The outer extension has the following fields:
 
    config_id  The ECHConfigContents.key_config.config_id for the chosen
@@ -495,8 +500,8 @@ Table of Contents
       corresponding payload field.  This field is empty in a
       ClientHelloOuter sent in response to HelloRetryRequest.
 
-   payload  The serialized and encrypted ClientHelloInner structure,
-      encrypted using HPKE as described in Section 6.1.
+   payload  The serialized and encrypted EncodedClientHelloInner
+      structure, encrypted using HPKE as described in Section 6.1.
 
    When a client offers the outer version of an "encrypted_client_hello"
    extension, the server MAY include an "encrypted_client_hello"
@@ -609,41 +614,23 @@ Table of Contents
    decompresses to a much larger ClientHelloInner.  This is discussed
    further in Section 10.12.4.
 
-   Implementations SHOULD bound the time to compute a ClientHelloInner
-   proportionally to the ClientHelloOuter size.  If the cost is
-   disproportionately large, a malicious client could exploit this in a
-   denial of service attack.  Appendix A describes a linear-time
+   Implementations SHOULD construct the ClientHelloInner in linear time.
+   Quadratic time implementations (such as may happen via naive copying)
+   create a denial of service risk.  Appendix B describes a linear-time
    procedure that may be used for this purpose.
 
 5.2.  Authenticating the ClientHelloOuter
 
-   To prevent a network attacker from modifying the reconstructed
-   ClientHelloInner (see Section 10.12.3), ECH authenticates
-   ClientHelloOuter by passing ClientHelloOuterAAD as the associated
-   data for HPKE sealing and opening operations.  The
-   ClientHelloOuterAAD is a serialized ClientHello structure, defined in
-   Section 4.1.2 of [RFC8446], which matches the ClientHelloOuter except
-   the payload field of the "encrypted_client_hello" is replaced with a
-   byte string of the same length but whose contents are zeros.  This
-   value does not include the four-byte header from the Handshake
-   structure.
-
-   The client follows the procedure in Section 6.1.1 to first construct
-   ClientHelloOuterAAD with a placeholder payload field, then replace
-   the field with the encrypted value to compute ClientHelloOuter.
-
-   The server then receives ClientHelloOuter and computes
-   ClientHelloOuterAAD by making a copy and replacing the portion
-   corresponding to the payload field with zeros.
-
-   The payload and the placeholder strings have the same length, so it
-   is not necessary for either side to recompute length prefixes when
-   applying the above transformations.
-
-   The decompression process in Section 5.1 forbids
-   "encrypted_client_hello" in OuterExtensions.  This ensures the
-   unauthenticated portion of ClientHelloOuter is not incorporated into
-   ClientHelloInner.
+   To prevent a network attacker from modifying the ClientHelloOuter
+   while keeping the same encrypted ClientHelloInner (see
+   Section 10.12.3), ECH authenticates ClientHelloOuter by passing
+   ClientHelloOuterAAD as the associated data for HPKE sealing and
+   opening operations.  The ClientHelloOuterAAD is a serialized
+   ClientHello structure, defined in Section 4.1.2 of [RFC8446], which
+   matches the ClientHelloOuter except that the payload field of the
+   "encrypted_client_hello" is replaced with a byte string of the same
+   length but whose contents are zeros.  This value does not include the
+   four-byte header from the Handshake structure.
 
 6.  Client Behavior
 
@@ -715,8 +702,12 @@ Table of Contents
        ClientHelloOuter.random using a secure random number generator.
        (See Section 10.12.1.)
 
-   5.  The value of ECHConfig.contents.public_name MUST be placed in the
-       "server_name" extension.
+   5.  It SHOULD place the value of ECHConfig.contents.public_name in
+       the "server_name" extension.  Clients that do not follow this
+       step, or place a different value in the "server_name" extension,
+       risk breaking the retry mechanism described in Section 6.1.6 or
+       failing to interoperate with servers that require this step to be
+       done; see Section 7.1.
 
    6.  When the client offers the "pre_shared_key" extension in
        ClientHelloInner, it SHOULD also include a GREASE
@@ -780,6 +771,11 @@ Table of Contents
        final_payload = context.Seal(ClientHelloOuterAAD,
                                     EncodedClientHelloInner)
 
+   Including ClientHelloOuterAAD as the HPKE AAD binds the
+   ClientHelloOuter to the ClientHelloInner, this preventing attackers
+   from modifying ClientHelloOuter while keeping the same
+   ClientHelloInner, as described in {#flow-clienthello-malleability}.
+
    Finally, the client replaces payload with final_payload to obtain
    ClientHelloOuter.  The two values have the same length, so it is not
    necessary to recompute length prefixes in the serialized structure.
@@ -796,11 +792,12 @@ Table of Contents
    "pre_shared_key" extension in the ClientHelloInner.  In this case,
    when resuming a session with the client, the backend server sends a
    "pre_shared_key" extension in its ServerHello.  This would appear to
-   a network observer as if the the server were sending this extension
+   a network observer as if the server were sending this extension
    without solicitation, which would violate the extension rules
-   described in [RFC8446].  Sending a GREASE "pre_shared_key" extension
-   in the ClientHelloOuter makes it appear to the network as if the
-   extension were negotiated properly.
+   described in [RFC8446].  When offering a PSK in ClientHelloInner,
+   Clients SHOULD sending a GREASE "pre_shared_key" extension in the
+   ClientHelloOuter to make it appear to the network as if the extension
+   were negotiated properly.
 
    The client generates the extension payload by constructing an
    OfferedPsks structure (see [RFC8446], Section 4.2.11) as follows.
@@ -818,12 +815,16 @@ Table of Contents
 
 6.1.3.  Recommended Padding Scheme
 
-   This section describes a deterministic padding mechanism based on the
-   following observation: individual extensions can reveal sensitive
-   information through their length.  Thus, each extension in the inner
-   ClientHello may require different amounts of padding.  This padding
-   may be fully determined by the client's configuration or may require
-   server input.
+   If the ClientHelloInner is encrypted without padding, then the length
+   of the ClientHelloOuter.payload can leak information about
+   ClientHelloInner.  In order to prevent this the
+   EncodedClientHelloInner structure has a padding field.  This section
+   describes a deterministic mechanism for computing the required amount
+   of padding based on the following observation: individual extensions
+   can reveal sensitive information through -their length.  Thus, each
+   extension in the inner ClientHello may require different amounts of
+   padding.  This padding may be fully determined by the client's
+   configuration or may require server input.
 
    By way of example, clients typically support a small number of
    application profiles.  For instance, a browser might support HTTP
@@ -974,18 +975,20 @@ Table of Contents
    DNS.  ECH does not mandate any specific implementation choices when
    establishing this new connection.
 
-   The retry configurations may only be applied to the retried
-   connection.  The client MUST NOT use retry configurations for
-   connections beyond the retry.  This avoids introducing pinning
-   concerns or a tracking vector, should a malicious server present
-   client-specific retry configurations in order to identify the client
-   in a subsequent ECH handshake.
+   The retry configurations are meant to be used for retried
+   connections.  Further use of retry configurations could yield a
+   tracking vector.  In settings where the client will otherwise already
+   let the server track the client, e.g., because the client will send
+   cookies to the server in parallel connections, using the retry
+   configurations for these parallel connections does not introduce a
+   new tracking vector.
 
    If none of the values provided in "retry_configs" contains a
-   supported version, or an earlier TLS version was negotiated, the
-   client can regard ECH as securely disabled by the server, and it
-   SHOULD retry the handshake with a new transport connection and ECH
-   disabled.
+   supported version, the server did not supply an
+   "encrypted_client_hello" extension in its EncryptedExtensions
+   message, or an earlier TLS version was negotiated, the client can
+   regard ECH as securely disabled by the server, and it SHOULD retry
+   the handshake with a new transport connection and ECH disabled.
 
    Clients SHOULD implement a limit on retries caused by receipt of
    "retry_configs" or servers which do not acknowledge the
@@ -1066,20 +1069,32 @@ Table of Contents
 
 7.  Server Behavior
 
-   Servers that support ECH play one of two roles, depending on the
-   payload of the "encrypted_client_hello" extension in the initial
-   ClientHello:
+   As described in {#topologies}, servers can play two roles, either as
+   the client-facing server or as the back-end server.  Depending on the
+   server role, the ECHClientHello will be different:
 
-   *  If ECHClientHello.type is outer, then the server acts as a client-
-      facing server and proceeds as described in Section 7.1 to extract
-      a ClientHelloInner, if available.
+   *  A client-facing server expects a ECHClientHello.type of outer, and
+      proceeds as described in Section 7.1 to extract a
+      ClientHelloInner, if available.
 
-   *  If ECHClientHello.type is inner, then the server acts as a backend
-      server and proceeds as described in Section 7.2.
+   *  A backend server expects a ECHClientHello.type of inner, and
+      proceeds as described in Section 7.2.
 
-   *  Otherwise, if ECHClientHello.type is not a valid
-      ECHClientHelloType, then the server MUST abort with an
-      "illegal_parameter" alert.
+   In split mode, a client-facing server which receives a ClientHello
+   with ECHClientHello.type of inner MUST abort with an
+   "illegal_parameter" alert.  Similarly, in split mode, a backend
+   server which receives a ClientHello with ECHClientHello.type of outer
+   MUST abort with an "illegal_parameter" alert.
+
+   In shared mode, a server plays both roles, first decrypting the
+   ClientHelloOuter and then using the contents of the ClientHelloInner.
+   A shared mode server which receives a ClientHello with
+   ECHClientHello.type of outer MUST abort with an "illegal_parameter"
+   alert, because such a ClientHello should never be received directly
+   from the network.
+
+   If ECHClientHello.type is not a valid ECHClientHelloType, then the
+   server MUST abort with an "illegal_parameter" alert.
 
    If the "encrypted_client_hello" is not present, then the server
    completes the handshake normally, as described in [RFC8446].
@@ -1105,13 +1120,14 @@ Table of Contents
 
    Some uses of ECH, such as local discovery mode, may randomize the
    ECHClientHello.config_id since it can be used as a tracking vector.
-   In such cases, the second method should be used for matching the
+   In such cases, the second method SHOULD be used for matching the
    ECHClientHello to a known ECHConfig.  See Section 10.4.  Unless
    specified by the application profile or otherwise externally
    configured, implementations MUST use the first method.
 
    The server then iterates over the candidate ECHConfig values,
-   attempting to decrypt the "encrypted_client_hello" extension:
+   attempting to decrypt the "encrypted_client_hello" extension as
+   follows.
 
    The server verifies that the ECHConfig supports the cipher suite
    indicated by the ECHClientHello.cipher_suite and that the version of
@@ -1133,6 +1149,15 @@ Table of Contents
    Otherwise, the server reconstructs ClientHelloInner from
    EncodedClientHelloInner, as described in Section 5.1.  It then stops
    iterating over the candidate ECHConfig values.
+
+   Once the server has chosen the correct ECHConfig, it MAY verify that
+   the value in the ClientHelloOuter "server_name" extension matches the
+   value of ECHConfig.contents.public_name, and abort with an
+   "illegal_parameter" alert if these do not match.  This optional check
+   allows the server to limit ECH connections to only use the public SNI
+   values advertised in its ECHConfigs.  The server MUST be careful not
+   to unnecessarily reject connections if the same ECHConfig id or
+   keypair is used in multiple ECHConfigs with distinct public names.
 
    Upon determining the ClientHelloInner, the client-facing server
    checks that the message includes a well-formed
@@ -1333,16 +1358,26 @@ Table of Contents
    attempt to use another server from the DNS results, if one is
    provided.
 
+   In order to ensure that the retry mechanism works successfully
+   servers SHOULD ensure that every endpoint which might receive a TLS
+   connection is provisioned with an appropriate certificate for the
+   public name.  This is especially important during periods of server
+   reconfiguration when different endpoints might have different
+   configurations.
+
 8.1.2.  Middleboxes
 
-   When connecting through a TLS-terminating proxy that does not support
-   this extension, [RFC8446], Section 9.3 requires the proxy still act
-   as a conforming TLS client and server.  The proxy must ignore unknown
-   parameters, and generate its own ClientHello containing only
-   parameters it understands.  Thus, when presenting a certificate to
-   the client or sending a ClientHello to the server, the proxy will act
-   as if connecting to the public name, without echoing the
-   "encrypted_client_hello" extension.
+   The requirements in [RFC8446], Section 9.3 which require proxies to
+   act as conforming TLS client and server provide interoperability with
+   TLS-terminating proxies even in cases where the server supports ECH
+   but the proxy does not, as detailed below.
+
+   The proxy must ignore unknown parameters, and generate its own
+   ClientHello containing only parameters it understands.  Thus, when
+   presenting a certificate to the client or sending a ClientHello to
+   the server, the proxy will act as if connecting to the
+   ClientHelloOuter server_name, which SHOULD match the public name (see
+   Section 6.1), without echoing the "encrypted_client_hello" extension.
 
    Depending on whether the client is configured to accept the proxy's
    certificate as authoritative for the public name, this may trigger
@@ -1363,20 +1398,12 @@ Table of Contents
    cases which depend on plaintext TLS information may require
    fundamentally different approaches to continue working.  For example,
    in managed enterprise settings, one approach may be to disable ECH
-   entirely via via group policy and for client implementations to honor
-   this action.  Another approach may be to intercept and decrypt client
-   TLS connections.  The feasibility of alternative solutions is
-   specific to individual deployments.
+   entirely via group policy and for client implementations to honor
+   this action.
 
-   In environments where the network operator does not control the
-   endpoint devices, or does controls the endpoint devices but is
-   concerned about the security consequences of compromised devices,
-   e.g., data exfiltration, the SNI field is unsuitable for use as a
-   control even in the absence of ECH.  This is because devices without
-   controls, or which have been compromised, can alter or spoof the
-   value in an SNI field already, and can even bypass security
-   appliances which try to 'double-check' websites hosted by the target
-   server.  ECH does not materially change this situation.
+   In the context of Section 6.1.6, another approach may be to intercept
+   and decrypt client TLS connections.  The feasibility of alternative
+   solutions is specific to individual deployments.
 
 9.  Compliance Requirements
 
@@ -1434,12 +1461,10 @@ Table of Contents
    1.  Security preservation.  Use of ECH does not weaken the security
        properties of TLS without ECH.
 
-   2.  Handshake privacy.  TLS connection establishment to a host with a
-       specific ECHConfig and TLS configuration is indistinguishable
-       from a connection to any other host with the same ECHConfig and
-       TLS configuration.  (The set of hosts which share the same
-       ECHConfig and TLS configuration is referred to as the anonymity
-       set.)
+   2.  Handshake privacy.  TLS connection establishment to a host within
+       an anonymity set is indistinguishable from a connection to any
+       other host within the anonymity set.  (The anonymity set is
+       defined in Section 1.)
 
    3.  Downgrade resistance.  An attacker cannot downgrade a connection
        that attempts to use ECH to one that does not use ECH.
@@ -1919,7 +1944,7 @@ Table of Contents
          ClientHello
          + key_share
          + ech
-         + ech_outer_extensions(pre_shared_key)
+            + ech_outer_extensions(pre_shared_key)
          + pre_shared_key
                      -------->
                            (intercept)
@@ -1944,7 +1969,10 @@ Table of Contents
    ECH mitigates this attack by only negotiating TLS parameters from
    ClientHelloInner and authenticating all inputs to the
    ClientHelloInner (EncodedClientHelloInner and ClientHelloOuter) with
-   the HPKE AEAD.  See Section 5.2.  An earlier iteration of this
+   the HPKE AEAD.  See Section 5.2.  The decompression process in
+   Section 5.1 forbids "encrypted_client_hello" in OuterExtensions.
+   This ensures the unauthenticated portion of ClientHelloOuter is not
+   incorporated into ClientHelloInner.  An earlier iteration of this
    specification only encrypted and authenticated the "server_name"
    extension, which left the overall ClientHello vulnerable to an
    analogue of this attack.
@@ -1982,10 +2010,13 @@ Table of Contents
    registry for ExtensionType (defined in [RFC8446]):
 
    1.  encrypted_client_hello(0xfe0d), with "TLS 1.3" column values set
-       to "CH, HRR, EE", and "Recommended" column set to "Yes".
+       to "CH, HRR, EE", "DTLS-Only" column set to "N", and
+       "Recommended" column set to "Yes".
 
    2.  ech_outer_extensions(0xfd00), with the "TLS 1.3" column values
-       set to "", and "Recommended" column set to "Yes".
+       set to "CH", "DTLS-Only" column set to "N", "Recommended" column
+       set to "Yes", and the "Comment" column set to "Only appears in
+       inner CH."
 
 11.2.  Update of the TLS Alert Registry
 
@@ -2015,19 +2046,36 @@ Table of Contents
    The registration policy for for the "ECHConfig Extension Type"
    registry is Specification Required [RFC8126].
 
-12.  ECHConfig Extension Guidance
+   This document defines several Reserved values for ECH configuration
+   extensions.  These can be used by servers to "grease" the contents of
+   the ECH configuration, as inspired by [RFC8701].  This helps ensure
+   clients process ECH extensions correctly.  When constructing ECH
+   configurations, servers SHOULD randomly select from reserved values
+   with the high-order bit clear.  Correctly-implemented client will
+   ignore those extensions.
 
-   Any future information or hints that influence ClientHelloOuter
-   SHOULD be specified as ECHConfig extensions.  This is primarily
-   because the outer ClientHello exists only in support of ECH.  Namely,
-   it is both an envelope for the encrypted inner ClientHello and
-   enabler for authenticated key mismatch signals (see Section 7).  In
-   contrast, the inner ClientHello is the true ClientHello used upon ECH
-   negotiation.
+   The reserved values with the high-order bit set are mandatory, as
+   defined in Section 4.2.  Servers SHOULD randomly select from these
+   values and include them in extraneous ECH configurations.  These
+   extraneous ECH configurations SHOULD have invalid keys, and public
+   names which the server does not respond to.  Correctly-implemented
+   clients will ignore these configurations.
 
-13.  References
+   The initial contents for this registry consists of multiple reserved
+   values, with the following attributes, which are repeated for each
+   registration:
 
-13.1.  Normative References
+   Value:  0x0000, 0x1A1A, 0x2A2A, 0x3A3A, 0x4A4A, 0x5A5A, 0x6A6A,
+      0x7A7A, 0x8A8A, 0x9A9A, 0xAAAA, 0xBABA, 0xCACA, 0xDADA, 0xEAEA,
+      0xFAFA
+   Extension Name:  RESERVED
+   Recommended:  Y
+   Reference:  This document
+   Notes:  None
+
+12.  References
+
+12.1.  Normative References
 
    [ECH-IN-DNS]
               Schwartz, B. M., Bishop, M., and E. Nygren, "Bootstrapping
@@ -2039,13 +2087,6 @@ Table of Contents
    [HPKE]     Barnes, R., Bhargavan, K., Lipp, B., and C. Wood, "Hybrid
               Public Key Encryption", RFC 9180, DOI 10.17487/RFC9180,
               February 2022, <https://www.rfc-editor.org/rfc/rfc9180>.
-
-   [HTTPS-RR] Schwartz, B. M., Bishop, M., and E. Nygren, "Service
-              binding and parameter specification via the DNS (DNS SVCB
-              and HTTPS RRs)", Work in Progress, Internet-Draft, draft-
-              ietf-dnsop-svcb-https-12, 11 March 2023,
-              <https://datatracker.ietf.org/doc/html/draft-ietf-dnsop-
-              svcb-https-12>.
 
    [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
               Requirement Levels", BCP 14, RFC 2119,
@@ -2080,7 +2121,12 @@ Table of Contents
               1.3", RFC 9147, DOI 10.17487/RFC9147, April 2022,
               <https://www.rfc-editor.org/rfc/rfc9147>.
 
-13.2.  Informative References
+   [RFC9460]  Schwartz, B., Bishop, M., and E. Nygren, "Service Binding
+              and Parameter Specification via the DNS (SVCB and HTTPS
+              Resource Records)", RFC 9460, DOI 10.17487/RFC9460,
+              November 2023, <https://www.rfc-editor.org/rfc/rfc9460>.
+
+12.2.  Informative References
 
    [ECH-Analysis]
               "A Symbolic Analysis of Privacy for TLS 1.3 with Encrypted
@@ -2140,15 +2186,25 @@ Table of Contents
               "URL Living Standard - IPv4 Parser", May 2021,
               <https://url.spec.whatwg.org/#concept-ipv4-parser>.
 
-Appendix A.  Linear-time Outer Extension Processing
+Appendix A.  ECHConfig Extension Guidance
+
+   Any future information or hints that influence ClientHelloOuter
+   SHOULD be specified as ECHConfig extensions.  This is primarily
+   because the outer ClientHello exists only in support of ECH.  Namely,
+   it is both an envelope for the encrypted inner ClientHello and
+   enabler for authenticated key mismatch signals (see Section 7).  In
+   contrast, the inner ClientHello is the true ClientHello used upon ECH
+   negotiation.
+
+Appendix B.  Linear-time Outer Extension Processing
 
    The following procedure processes the "ech_outer_extensions"
    extension (see Section 5.1) in linear time, ensuring that each
    referenced extension in the ClientHelloOuter is included at most
    once:
 
-   1.  Let I be zero and N be the number of extensions in
-       ClientHelloOuter.
+   1.  Let I be initialized to zero and N be set to the number of
+       extensions in ClientHelloOuter.
 
    2.  For each extension type, E, in OuterExtensions:
 
@@ -2164,7 +2220,7 @@ Appendix A.  Linear-time Outer Extension Processing
        *  Otherwise, the I-th extension of ClientHelloOuter has type E.
           Copy it to the EncodedClientHelloInner and increment I.
 
-Appendix B.  Acknowledgements
+Appendix C.  Acknowledgements
 
    This document draws extensively from ideas in
    [I-D.kazuho-protected-sni], but is a much more limited mechanism
@@ -2173,30 +2229,30 @@ Appendix B.  Acknowledgements
    Nick Sullivan, Martin Thomson, and David Benjamin also provided
    important ideas and contributions.
 
-Appendix C.  Change Log
+Appendix D.  Change Log
 
       *RFC Editor's Note:* Please remove this section prior to
       publication of a final version of this document.
 
    Issue and pull request numbers are listed with a leading octothorp.
 
-C.1.  Since draft-ietf-tls-esni-16
+D.1.  Since draft-ietf-tls-esni-16
 
    *  Keep-alive
 
-C.2.  Since draft-ietf-tls-esni-15
+D.2.  Since draft-ietf-tls-esni-15
 
    *  Add CCS2022 reference and summary (#539)
 
-C.3.  Since draft-ietf-tls-esni-14
+D.3.  Since draft-ietf-tls-esni-14
 
    *  Keep-alive
 
-C.4.  Since draft-ietf-tls-esni-13
+D.4.  Since draft-ietf-tls-esni-13
 
    *  Editorial improvements
 
-C.5.  Since draft-ietf-tls-esni-12
+D.5.  Since draft-ietf-tls-esni-12
 
    *  Abort on duplicate OuterExtensions (#514)
 
@@ -2214,7 +2270,7 @@ C.5.  Since draft-ietf-tls-esni-12
    *  Editorial iprovements (#485, #488, #490, #495, #496, #499, #500,
       #501, #504, #505, #507, #510, #511)
 
-C.6.  Since draft-ietf-tls-esni-11
+D.6.  Since draft-ietf-tls-esni-11
 
    *  Move ClientHello padding to the encoding (#443)
 
@@ -2226,7 +2282,7 @@ C.6.  Since draft-ietf-tls-esni-11
 
    *  Editorial improvements (#468, #465, #462, #461)
 
-C.7.  Since draft-ietf-tls-esni-10
+D.7.  Since draft-ietf-tls-esni-10
 
    *  Make HRR confirmation and ECH acceptance explicit (#422, #423)
 
@@ -2252,7 +2308,7 @@ C.7.  Since draft-ietf-tls-esni-10
 
    *  Editorial improvements (#428, #432, #439, #445, #458, #455)
 
-C.8.  Since draft-ietf-tls-esni-09
+D.8.  Since draft-ietf-tls-esni-09
 
    *  Finalize HPKE dependency (#390)
 
@@ -2266,7 +2322,7 @@ C.8.  Since draft-ietf-tls-esni-09
 Authors' Addresses
 
    Eric Rescorla
-   RTFM, Inc.
+   Windy Hill Systems, LLC
    Email: ekr@rtfm.com
 
 
@@ -2276,8 +2332,8 @@ Authors' Addresses
 
 
    Nick Sullivan
-   Cloudflare
-   Email: nick@cloudflare.com
+   Cryptography Consulting LLC
+   Email: nicholas.sullivan+ietf@gmail.com
 
 
    Christopher A. Wood
